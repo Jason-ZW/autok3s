@@ -307,14 +307,14 @@ func SSHK3sNode(ip string, cluster *types.Cluster, ssh *types.SSH) error {
 	var node types.Node
 
 	for _, n := range cluster.Status.MasterNodes {
-		if n.PublicIPAddress[0] == ip {
+		if n.PublicIPAddress[0] == ip || n.InstanceID == ip {
 			node = n
 			break
 		}
 	}
 
 	for _, n := range cluster.Status.WorkerNodes {
-		if n.PublicIPAddress[0] == ip {
+		if n.PublicIPAddress[0] == ip || n.InstanceID == ip {
 			node = n
 			break
 		}
@@ -591,7 +591,7 @@ func (p *ProviderBase) execute(host *hosts.Host, cmds []string) (string, error) 
 		return "", err
 	}
 
-	tunnel, err := dialer.OpenTunnel(true)
+	tunnel, err := dialer.OpenTunnel(true, "", context.Background())
 	if err != nil {
 		return "", err
 	}
@@ -608,7 +608,7 @@ func (p *ProviderBase) execute(host *hosts.Host, cmds []string) (string, error) 
 		stdout bytes.Buffer
 		stderr bytes.Buffer
 	)
-	tunnel.SetStdio(&stdout, &stderr)
+	tunnel.SetStdio(&stdout, &stderr, nil)
 
 	if err := tunnel.Run(); err != nil {
 		return "", fmt.Errorf("%w: %s", err, stderr.String())
@@ -623,7 +623,7 @@ func terminal(host *hosts.Host) error {
 		return err
 	}
 
-	tunnel, err := dialer.OpenTunnel(false)
+	tunnel, err := dialer.OpenTunnel(false, "", context.Background())
 	if err != nil {
 		return err
 	}
