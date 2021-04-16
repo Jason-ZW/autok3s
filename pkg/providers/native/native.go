@@ -98,8 +98,8 @@ func (p *Native) CreateK3sCluster() (err error) {
 			p.Logger.Infof(common.UsageContext, p.Name)
 			p.Logger.Info(common.UsagePods)
 		}
-		os.Remove(filepath.Join(p.getStatePath(), fmt.Sprintf("%s_%s", c.Name, common.StatusCreating)))
-		logFile.Close()
+		_ = os.Remove(filepath.Join(p.getStatePath(), fmt.Sprintf("%s_%s", c.Name, common.StatusCreating)))
+		_ = logFile.Close()
 	}()
 
 	p.Logger = common.NewLogger(common.Debug, logFile)
@@ -144,8 +144,8 @@ func (p *Native) JoinK3sNode() (err error) {
 	}
 
 	defer func() {
-		os.Remove(filepath.Join(p.getStatePath(), fmt.Sprintf("%s_%s", c.Name, common.StatusUpgrading)))
-		logFile.Close()
+		_ = os.Remove(filepath.Join(p.getStatePath(), fmt.Sprintf("%s_%s", c.Name, common.StatusUpgrading)))
+		_ = logFile.Close()
 	}()
 
 	p.Logger = common.NewLogger(common.Debug, logFile)
@@ -216,7 +216,7 @@ func (p *Native) JoinK3sNode() (err error) {
 
 func (p *Native) Rollback() error {
 	return p.RollbackCluster(func(ids []string) error {
-		nodes := []types.Node{}
+		nodes := make([]types.Node, 0)
 		for _, id := range ids {
 			if node, ok := p.M.Load(id); ok {
 				nodes = append(nodes, node.(types.Node))

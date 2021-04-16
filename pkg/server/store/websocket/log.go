@@ -59,10 +59,10 @@ func logHandler(apiOp *types.APIRequest) error {
 		scanner := bufio.NewScanner(logFile)
 		for scanner.Scan() {
 			var bs = bytes.NewBufferString(fmt.Sprintf("data:%s\n\n", scanner.Text()))
-			w.Write(bs.Bytes())
+			_, _ = w.Write(bs.Bytes())
 			f.Flush()
 		}
-		w.Write([]byte("event: close\ndata: close\n\n"))
+		_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 		return logFile.Close()
 	}
 
@@ -78,17 +78,17 @@ func logHandler(apiOp *types.APIRequest) error {
 		select {
 		case s, ok := <-result:
 			if !ok {
-				w.Write([]byte("event: close\ndata: close\n\n"))
+				_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 				return nil
 			}
 			if s.ContextName == cluster {
 				err = WriteLastLogs(t, w, f, logFilePath)
 				if err != nil {
-					w.Write([]byte("event: close\ndata: close\n\n"))
+					_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 					return err
 				}
 				close(result)
-				w.Write([]byte("event: close\ndata: close\n\n"))
+				_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 				return nil
 			}
 		case <-apiOp.Context().Done():
@@ -97,11 +97,11 @@ func logHandler(apiOp *types.APIRequest) error {
 			return nil
 		case line, ok := <-t.Lines:
 			if !ok {
-				w.Write([]byte("event: close\ndata: close\n\n"))
+				_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 				return nil
 			}
 			var bs = bytes.NewBufferString(fmt.Sprintf("data:%s\n\n", line.Text))
-			w.Write(bs.Bytes())
+			_, _ = w.Write(bs.Bytes())
 			f.Flush()
 		}
 	}
@@ -120,7 +120,7 @@ func NewTailLog(logFilePath string) (*tail.Tail, error) {
 }
 
 func CloseLog(t *tail.Tail) {
-	t.Stop()
+	_ = t.Stop()
 	t.Cleanup()
 }
 
@@ -141,10 +141,10 @@ func WriteLastLogs(t *tail.Tail, w http.ResponseWriter, f http.Flusher, logFileP
 	scanner := bufio.NewScanner(logFile)
 	for scanner.Scan() {
 		var bs = bytes.NewBufferString(fmt.Sprintf("data:%s\n\n", scanner.Text()))
-		w.Write(bs.Bytes())
+		_, _ = w.Write(bs.Bytes())
 		f.Flush()
 	}
 	CloseLog(t)
-	logFile.Close()
+	_ = logFile.Close()
 	return nil
 }

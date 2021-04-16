@@ -22,7 +22,7 @@ func nativeLogHandler(context context.Context, w http.ResponseWriter, f http.Flu
 		return err
 	}
 	defer func() {
-		watcher.Close()
+		_ = watcher.Close()
 	}()
 	err = watcher.Add(stateDir)
 	if err != nil {
@@ -38,17 +38,17 @@ func nativeLogHandler(context context.Context, w http.ResponseWriter, f http.Flu
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
-				w.Write([]byte("event: close\ndata: close\n\n"))
+				_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 				return nil
 			}
 			if event.Op == fsnotify.Remove && isProcessState(event.Name, cluster) {
 				logrus.Infof("ready to close cluster %s logs", cluster)
 				err = WriteLastLogs(t, w, f, logFilePath)
 				if err != nil {
-					w.Write([]byte("event: close\ndata: close\n\n"))
+					_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 					return err
 				}
-				w.Write([]byte("event: close\ndata: close\n\n"))
+				_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 				return nil
 			}
 		case <-context.Done():
@@ -57,11 +57,11 @@ func nativeLogHandler(context context.Context, w http.ResponseWriter, f http.Flu
 			return nil
 		case line, ok := <-t.Lines:
 			if !ok {
-				w.Write([]byte("event: close\ndata: close\n\n"))
+				_, _ = w.Write([]byte("event: close\ndata: close\n\n"))
 				return nil
 			}
 			var bs = bytes.NewBufferString(fmt.Sprintf("data:%s\n\n", line.Text))
-			w.Write(bs.Bytes())
+			_, _ = w.Write(bs.Bytes())
 			f.Flush()
 		}
 	}
