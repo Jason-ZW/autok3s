@@ -28,7 +28,10 @@ func (s *BinaryWriter) Write(p []byte) (int, error) {
 	defer func() {
 		_ = w.Close()
 	}()
-	n, err := w.Write(p)
+	var n int
+	if len(p) != 0 {
+		n, err = w.Write(p)
+	}
 	return n, err
 }
 
@@ -63,6 +66,13 @@ func NewReader(con *websocket.Conn) *TerminalReader {
 	}
 }
 
+func (t *TerminalReader) Close() error {
+	if ok := <-t.ClosedCh; ok {
+		t.ClosedCh <- true
+	}
+	return t.conn.Close()
+}
+
 func (t *TerminalReader) SetResizeFunction(resizeFun func(size *WindowSize)) {
 	t.resize = resizeFun
 }
@@ -75,7 +85,9 @@ func (t *TerminalReader) Read(p []byte) (int, error) {
 			msgType, t.reader, err = t.conn.NextReader()
 			if err != nil {
 				t.reader = nil
-				t.ClosedCh <- true
+				if ok := <-t.ClosedCh; ok {
+					t.ClosedCh <- true
+				}
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
 					return 0, io.EOF
 				}

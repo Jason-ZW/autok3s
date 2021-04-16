@@ -2,6 +2,7 @@ package alibaba
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -200,7 +201,7 @@ func (p *Alibaba) SSHK3sNode(ip string) error {
 		Options:  p.Options,
 		Status:   p.Status,
 	}
-	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning)
+	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning, nil)
 }
 
 func (p *Alibaba) IsClusterExist() (bool, []string, error) {
@@ -364,20 +365,27 @@ func (p *Alibaba) runInstances(num int, master bool, password string) error {
 		request.Password = password
 	}
 
-	tag := []ecs.RunInstancesTag{{Key: "autok3s", Value: "true"}, {Key: "cluster", Value: common.TagClusterPrefix + p.ContextName}}
+	tags := []ecs.RunInstancesTag{{Key: "autok3s", Value: "true"}, {Key: "cluster", Value: common.TagClusterPrefix + p.ContextName}}
 
-	for k, v := range p.Tags {
-		tag = append(tag, ecs.RunInstancesTag{Key: k, Value: v})
+	for _, v := range p.Tags {
+		ss := strings.Split(v, "=")
+		if len(ss) != 2 {
+			return fmt.Errorf("tags %s invalid", v)
+		}
+		tags = append(tags, ecs.RunInstancesTag{
+			Key:   ss[0],
+			Value: ss[1],
+		})
 	}
 
 	if master {
 		request.InstanceName = fmt.Sprintf(common.MasterInstanceName, p.ContextName)
-		tag = append(tag, ecs.RunInstancesTag{Key: "master", Value: "true"})
+		tags = append(tags, ecs.RunInstancesTag{Key: "master", Value: "true"})
 	} else {
 		request.InstanceName = fmt.Sprintf(common.WorkerInstanceName, p.ContextName)
-		tag = append(tag, ecs.RunInstancesTag{Key: "worker", Value: "true"})
+		tags = append(tags, ecs.RunInstancesTag{Key: "worker", Value: "true"})
 	}
-	request.Tag = &tag
+	request.Tag = &tags
 
 	response, err := p.c.RunInstances(request)
 	if err != nil || len(response.InstanceIdSets.InstanceIdSet) != num {
@@ -1494,7 +1502,7 @@ func (p *Alibaba) uploadKeyPair(node types.Node, publicKey string) error {
 	if err != nil {
 		return err
 	}
-	tunnel, err := dialer.OpenTunnel(true)
+	tunnel, err := dialer.OpenTunnel(true, "", context.Background())
 	if err != nil {
 		return err
 	}
@@ -1511,7 +1519,7 @@ func (p *Alibaba) uploadKeyPair(node types.Node, publicKey string) error {
 
 	tunnel.Cmd(command)
 
-	if err := tunnel.SetStdio(&stdout, &stderr).Run(); err != nil || stderr.String() != "" {
+	if err := tunnel.SetStdio(&stdout, &stderr, nil).Run(); err != nil || stderr.String() != "" {
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	p.Logger.Debugf("[%s] upload keypair with output: %s", p.GetProviderName(), stdout.String())

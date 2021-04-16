@@ -2,6 +2,7 @@ package tencent
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -214,7 +215,7 @@ func (p *Tencent) SSHK3sNode(ip string) error {
 		Options:  p.Options,
 		Status:   p.Status,
 	}
-	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning)
+	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning, nil)
 }
 
 func (p *Tencent) isInstanceRunning(state string) bool {
@@ -762,8 +763,12 @@ func (p *Tencent) runInstances(num int, master bool, password string) error {
 		{Key: tencentCommon.StringPtr("cluster"), Value: tencentCommon.StringPtr(common.TagClusterPrefix + p.ContextName)},
 	}
 
-	for k, v := range p.Tags {
-		tags = append(tags, &cvm.Tag{Key: tencentCommon.StringPtr(k), Value: tencentCommon.StringPtr(v)})
+	for _, v := range p.Tags {
+		ss := strings.Split(v, "=")
+		if len(ss) != 2 {
+			return fmt.Errorf("tags %s invalid", v)
+		}
+		tags = append(tags, &cvm.Tag{Key: tencentCommon.StringPtr(ss[0]), Value: tencentCommon.StringPtr(ss[1])})
 	}
 
 	if master {
@@ -1406,7 +1411,7 @@ func (p *Tencent) uploadKeyPair(node types.Node, publicKey string) error {
 	if err != nil {
 		return err
 	}
-	tunnel, err := dialer.OpenTunnel(true)
+	tunnel, err := dialer.OpenTunnel(true, "", context.Background())
 	if err != nil {
 		return err
 	}
@@ -1423,7 +1428,7 @@ func (p *Tencent) uploadKeyPair(node types.Node, publicKey string) error {
 
 	tunnel.Cmd(command)
 
-	if err := tunnel.SetStdio(&stdout, &stderr).Run(); err != nil || stderr.String() != "" {
+	if err := tunnel.SetStdio(&stdout, &stderr, nil).Run(); err != nil || stderr.String() != "" {
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	p.Logger.Infof("[%s] upload keypair with output: %s", p.GetProviderName(), stdout.String())

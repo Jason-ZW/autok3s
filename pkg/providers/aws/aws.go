@@ -120,7 +120,7 @@ func (p *Amazon) SSHK3sNode(ip string) error {
 		Options:  p.Options,
 		Status:   p.Status,
 	}
-	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning)
+	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning, nil)
 }
 
 func (p *Amazon) isInstanceRunning(state string) bool {
@@ -441,7 +441,7 @@ func (p *Amazon) runInstances(num int, master bool, ssh *types.SSH) error {
 	return p.setInstanceTags(master, ids, p.Tags)
 }
 
-func (p *Amazon) setInstanceTags(master bool, instanceIDs []*string, additionalTags map[string]string) error {
+func (p *Amazon) setInstanceTags(master bool, instanceIDs []*string, additionalTags []string) error {
 	tags := []*ec2.Tag{
 		{
 			Key:   aws.String("autok3s"),
@@ -457,10 +457,14 @@ func (p *Amazon) setInstanceTags(master bool, instanceIDs []*string, additionalT
 		},
 	}
 
-	for k, v := range additionalTags {
+	for _, v := range additionalTags {
+		ss := strings.Split(v, "=")
+		if len(ss) != 2 {
+			return fmt.Errorf("tags %s invalid", v)
+		}
 		tags = append(tags, &ec2.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
+			Key:   aws.String(ss[0]),
+			Value: aws.String(ss[1]),
 		})
 	}
 
