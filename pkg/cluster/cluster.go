@@ -591,7 +591,7 @@ func (p *ProviderBase) execute(host *hosts.Host, cmds []string) (string, error) 
 		return "", err
 	}
 
-	tunnel, err := dialer.OpenTunnel(true)
+	tunnel, err := dialer.OpenTunnel(true, nil)
 	if err != nil {
 		return "", err
 	}
@@ -608,7 +608,7 @@ func (p *ProviderBase) execute(host *hosts.Host, cmds []string) (string, error) 
 		stdout bytes.Buffer
 		stderr bytes.Buffer
 	)
-	tunnel.SetStdio(&stdout, &stderr)
+	tunnel.SetStdio(&stdout, &stderr, nil)
 
 	if err := tunnel.Run(); err != nil {
 		return "", fmt.Errorf("%w: %s", err, stderr.String())
@@ -623,7 +623,7 @@ func terminal(host *hosts.Host) error {
 		return err
 	}
 
-	tunnel, err := dialer.OpenTunnel(false)
+	tunnel, err := dialer.OpenTunnel(false, nil)
 	if err != nil {
 		return err
 	}
@@ -863,6 +863,11 @@ func DescribeClusterNodes(client *kubernetes.Clientset, instanceNodes []types.Cl
 				if address == internalIP {
 					isCurrentInstance = true
 					break
+				}
+			}
+			if !isCurrentInstance {
+				if n.InstanceID == node.Name {
+					isCurrentInstance = true
 				}
 			}
 			if isCurrentInstance {

@@ -144,14 +144,14 @@ func (p *Alibaba) CreateK3sCluster() (err error) {
 	if p.SSHUser == "" {
 		p.SSHUser = defaultUser
 	}
-	return p.InitCluster(p.Options, p.GenerateManifest, p.generateInstance, p.rollbackInstance)
+	return p.InitCluster(p.Options, p.GenerateManifest, p.generateInstance, nil, p.rollbackInstance)
 }
 
 func (p *Alibaba) JoinK3sNode() (err error) {
 	if p.SSHUser == "" {
 		p.SSHUser = defaultUser
 	}
-	return p.JoinNodes(p.generateInstance, func() error { return nil }, p.rollbackInstance)
+	return p.JoinNodes(p.generateInstance, func() error { return nil }, false, p.rollbackInstance)
 }
 
 func (p *Alibaba) Rollback() error {
@@ -1494,7 +1494,7 @@ func (p *Alibaba) uploadKeyPair(node types.Node, publicKey string) error {
 	if err != nil {
 		return err
 	}
-	tunnel, err := dialer.OpenTunnel(true)
+	tunnel, err := dialer.OpenTunnel(true, nil)
 	if err != nil {
 		return err
 	}
@@ -1511,7 +1511,7 @@ func (p *Alibaba) uploadKeyPair(node types.Node, publicKey string) error {
 
 	tunnel.Cmd(command)
 
-	if err := tunnel.SetStdio(&stdout, &stderr).Run(); err != nil || stderr.String() != "" {
+	if err := tunnel.SetStdio(&stdout, &stderr, nil).Run(); err != nil || stderr.String() != "" {
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	p.Logger.Debugf("[%s] upload keypair with output: %s", p.GetProviderName(), stdout.String())

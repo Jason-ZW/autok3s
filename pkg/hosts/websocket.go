@@ -1,4 +1,4 @@
-package websocket
+package hosts
 
 import (
 	"context"
@@ -10,17 +10,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func NewWriter(con *websocket.Conn) *BinaryWriter {
-	return &BinaryWriter{
+func NewWsWriter(con *websocket.Conn) *WsWriter {
+	return &WsWriter{
 		conn: con,
 	}
 }
 
-type BinaryWriter struct {
+type WsWriter struct {
 	conn *websocket.Conn
 }
 
-func (s *BinaryWriter) Write(p []byte) (int, error) {
+func (s *WsWriter) Write(p []byte) (int, error) {
 	w, err := s.conn.NextWriter(websocket.BinaryMessage)
 	if err != nil {
 		return 0, convert(err)
@@ -28,7 +28,10 @@ func (s *BinaryWriter) Write(p []byte) (int, error) {
 	defer func() {
 		_ = w.Close()
 	}()
-	n, err := w.Write(p)
+	var n int
+	if len(p) != 0 {
+		n, err = w.Write(p)
+	}
 	return n, err
 }
 
@@ -49,25 +52,25 @@ type WindowSize struct {
 
 type changeSizeFunc func(size *WindowSize)
 
-type TerminalReader struct {
+type WsReader struct {
 	conn     *websocket.Conn
 	reader   io.Reader
 	resize   changeSizeFunc
 	ClosedCh chan bool
 }
 
-func NewReader(con *websocket.Conn) *TerminalReader {
-	return &TerminalReader{
+func NewWsReader(con *websocket.Conn) *WsReader {
+	return &WsReader{
 		conn:     con,
 		ClosedCh: make(chan bool, 1),
 	}
 }
 
-func (t *TerminalReader) SetResizeFunction(resizeFun func(size *WindowSize)) {
+func (t *WsReader) SetResizeFunction(resizeFun func(size *WindowSize)) {
 	t.resize = resizeFun
 }
 
-func (t *TerminalReader) Read(p []byte) (int, error) {
+func (t *WsReader) Read(p []byte) (int, error) {
 	var msgType int
 	var err error
 	for {
@@ -75,7 +78,9 @@ func (t *TerminalReader) Read(p []byte) (int, error) {
 			msgType, t.reader, err = t.conn.NextReader()
 			if err != nil {
 				t.reader = nil
-				t.ClosedCh <- true
+				if ok := <-t.ClosedCh; ok {
+					t.ClosedCh <- true
+				}
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
 					return 0, io.EOF
 				}
@@ -105,7 +110,20 @@ func (t *TerminalReader) Read(p []byte) (int, error) {
 	}
 }
 
-func ReadMessage(ctx context.Context, con *websocket.Conn, closeSession func(), wait func() error, stop chan bool) error {
+func (t *WsReader) Close() error {
+	if ok := <-t.ClosedCh; ok {
+		t.ClosedCh <- true
+	}
+
+	if t.conn != nil {
+		if err := t.conn.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ReadMessage(ctx context.Context, con *websocket.Conn, closeSession func() error, wait func() error, stop chan bool) error {
 	sessionClosed := make(chan error, 1)
 	go func() {
 		sessionClosed <- wait()
@@ -114,17 +132,20 @@ func ReadMessage(ctx context.Context, con *websocket.Conn, closeSession func(), 
 	for {
 		select {
 		case <-ctx.Done():
-			closeSession()
-			return nil
+			return closeSession()
 		case <-sessionClosed:
-			closeSession()
+			if err := closeSession(); err != nil {
+				return err
+			}
 			close(sessionClosed)
 			_ = con.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "EOF"))
 			return nil
 		case isStop := <-stop:
-			// check stop from client
+			// check stop from client.
 			if isStop {
-				closeSession()
+				if err := closeSession(); err != nil {
+					return err
+				}
 				close(stop)
 				return nil
 			}

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	websocketutil "github.com/cnrancher/autok3s/pkg/server/store/websocket/utils"
+	"github.com/cnrancher/autok3s/pkg/hosts"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -90,34 +90,45 @@ func (s *Shell) startTerminal(ctx context.Context, rows, cols int, id string) er
 		return err
 	}
 	s.ptmx = p
-	r := websocketutil.NewReader(s.conn)
-	r.SetResizeFunction(s.ChangeSize)
-	w := websocketutil.NewWriter(s.conn)
+
+	dialer, err := hosts.KubectlDialer(&hosts.Host{})
+	if err != nil {
+		return err
+	}
+
+	tunnel, err := dialer.OpenTunnel(false, s.conn)
+	if err != nil {
+		return err
+	}
+
+	tunnel.WsReader.SetResizeFunction(s.ChangeSize)
+
 	aliasCmd := fmt.Sprintf("alias kubectl='kubectl --context %s'\n", id)
 	aliasCmd = fmt.Sprintf("%salias k='kubectl --context %s'\n", aliasCmd, id)
+
 	_, _ = s.ptmx.Write([]byte(aliasCmd))
 	go func() {
-		_, _ = io.Copy(s.ptmx, r)
+		_, _ = io.Copy(s.ptmx, tunnel.WsReader)
 	}()
 	go func() {
-		_, _ = io.Copy(w, s.ptmx)
+		_, _ = io.Copy(tunnel.WsWriter, s.ptmx)
 	}()
-	return websocketutil.ReadMessage(ctx, s.conn, s.Close, kubeBash.Wait, r.ClosedCh)
+
+	return hosts.ReadMessage(ctx, s.conn, s.Close, kubeBash.Wait, tunnel.WsReader.ClosedCh)
 }
 
-func (s *Shell) Close() {
+func (s *Shell) Close() error {
 	if s.ptmx != nil {
-		_ = s.ptmx.Close()
+		if err := s.ptmx.Close(); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (s *Shell) ChangeSize(win *websocketutil.WindowSize) {
+func (s *Shell) ChangeSize(win *hosts.WindowSize) {
 	_ = pty.Setsize(s.ptmx, &pty.Winsize{
 		Rows: uint16(win.Height),
 		Cols: uint16(win.Width),
 	})
-}
-
-func (s *Shell) WriteToShell(data []byte) {
-	_, _ = s.ptmx.Write(data)
 }

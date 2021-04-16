@@ -1,10 +1,15 @@
 package ssh
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/cnrancher/autok3s/pkg/common"
+	"github.com/cnrancher/autok3s/pkg/hosts"
+	autok3stypes "github.com/cnrancher/autok3s/pkg/types"
 
 	"github.com/gorilla/websocket"
 	"github.com/rancher/apiserver/pkg/apierror"
@@ -64,7 +69,7 @@ func handler(apiOp *types.APIRequest) error {
 		_ = c.Close()
 	}()
 
-	tunnel, err := NewSSHClient(id, node)
+	tunnel, err := getTunnel(c, id, node)
 	if err != nil {
 		return err
 	}
@@ -72,11 +77,48 @@ func handler(apiOp *types.APIRequest) error {
 		_ = tunnel.Close()
 	}()
 
-	terminal := NewTerminal(c)
-	err = terminal.StartTerminal(tunnel, rows, columns)
+	tunnel.SetSize(rows, columns)
+
+	if err := tunnel.Terminal(); err != nil {
+		return err
+	}
+
+	session, err := tunnel.Session()
 	if err != nil {
 		return err
 	}
 
-	return terminal.ReadMessage(apiOp.Context())
+	return hosts.ReadMessage(apiOp.Context(), c, session.Close, session.Wait, tunnel.WsReader.ClosedCh)
+}
+
+func getTunnel(wsConn *websocket.Conn, id, node string) (*hosts.Tunnel, error) {
+	// get node status from state.
+	var state, err = common.DefaultDB.GetClusterByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, fmt.Errorf("cluster %s is not exist", id)
+	}
+	allNodes := make([]autok3stypes.Node, 0)
+	err = json.Unmarshal(state.MasterNodes, &allNodes)
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]autok3stypes.Node, 0)
+	err = json.Unmarshal(state.WorkerNodes, &nodes)
+	if err != nil {
+		return nil, err
+	}
+	allNodes = append(allNodes, nodes...)
+	for _, n := range allNodes {
+		if n.InstanceID == node {
+			dialer, err := hosts.WsDialer(&hosts.Host{Node: n})
+			if err != nil {
+				return nil, err
+			}
+			return dialer.OpenTunnel(false, wsConn)
+		}
+	}
+	return nil, apierror.NewAPIError(validation.NotFound, fmt.Sprintf("node %s is not found for cluster [%s]", node, id))
 }

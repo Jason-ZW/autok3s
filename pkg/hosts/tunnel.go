@@ -6,27 +6,32 @@ import (
 	"os"
 	"sync"
 
+	"github.com/gorilla/websocket"
+	"github.com/moby/term"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
 type Tunnel struct {
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
-	Writer io.Writer
-	Modes  ssh.TerminalModes
-	Term   string
-	Height int
-	Weight int
+	Stdin    io.Reader
+	Stdout   io.Writer
+	Stderr   io.Writer
+	Writer   io.Writer
+	WsConn   *websocket.Conn
+	WsReader *WsReader
+	WsWriter *WsWriter
+	Modes    ssh.TerminalModes
+	Term     string
+	Height   int
+	Weight   int
 
-	err  error
-	conn *ssh.Client
-	cmd  *bytes.Buffer
-}
+	err error
 
-func (t *Tunnel) Close() error {
-	return t.conn.Close()
+	conn    *ssh.Client
+	session *ssh.Session
+
+	cmd *bytes.Buffer
 }
 
 func (t *Tunnel) Cmd(cmd string) *Tunnel {
@@ -44,16 +49,21 @@ func (t *Tunnel) Cmd(cmd string) *Tunnel {
 }
 
 func (t *Tunnel) Terminal() error {
-	session, err := t.conn.NewSession()
-	defer func() {
-		_ = session.Close()
-	}()
+	_, err := t.Session()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		_ = t.Close()
+	}()
 
-	term := os.Getenv("TERM")
-	if term == "" {
+	if t.isWsTunnel() {
+		t.SetStdio(t.WsWriter, t.WsWriter, t.WsReader)
+		t.WsReader.SetResizeFunction(t.ChangeWindowSize)
+	}
+
+	termEnv := os.Getenv("TERM")
+	if termEnv == "" {
 		t.Term = "xterm-256color"
 	}
 	t.Modes = ssh.TerminalModes{
@@ -62,7 +72,9 @@ func (t *Tunnel) Terminal() error {
 		ssh.TTY_OP_OSPEED: 14400,
 	}
 
-	fd := int(os.Stdin.Fd())
+	fdInt, _ := term.GetFdInfo(t.Stdin)
+	fd := int(fdInt)
+
 	oldState, err := terminal.MakeRaw(fd)
 	defer func() {
 		_ = terminal.Restore(fd, oldState)
@@ -76,23 +88,29 @@ func (t *Tunnel) Terminal() error {
 		return err
 	}
 
-	session.Stdin = os.Stdin
-	session.Stdout = os.Stdout
-	session.Stderr = os.Stderr
+	t.session.Stdin = t.Stdin
+	t.session.Stdout = t.Stdout
+	t.session.Stderr = t.Stderr
 
-	if err := session.RequestPty(t.Term, t.Height, t.Weight, t.Modes); err != nil {
+	if err := t.session.RequestPty(t.Term, t.Height, t.Weight, t.Modes); err != nil {
 		return err
 	}
 
-	if err := session.Shell(); err != nil {
+	if err := t.session.Shell(); err != nil {
 		return err
 	}
 
-	if err := session.Wait(); err != nil {
+	if err := t.session.Wait(); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (t *Tunnel) ChangeWindowSize(win *WindowSize) {
+	if err := t.session.WindowChange(win.Height, win.Width); err != nil {
+		logrus.Errorf("[ssh terminal] failed to change ssh window size: %v", err)
+	}
 }
 
 func (t *Tunnel) Run() error {
@@ -103,10 +121,56 @@ func (t *Tunnel) Run() error {
 	return t.executeCommands()
 }
 
-func (t *Tunnel) SetStdio(stdout, stderr io.Writer) *Tunnel {
-	t.Stdout = stdout
-	t.Stderr = stderr
+func (t *Tunnel) SetStdio(stdout, stderr io.Writer, stdin io.ReadCloser) *Tunnel {
+	if stdout != nil {
+		t.Stdout = stdout
+	}
+	if stderr != nil {
+		t.Stderr = stderr
+	}
+	if stdin != nil {
+		t.Stdin = stdin
+	}
 	return t
+}
+
+func (t *Tunnel) SetSize(height, weight int) {
+	t.Height = height
+	t.Weight = weight
+}
+
+func (t *Tunnel) Close() error {
+	if err := t.SessionClose(); err != nil {
+		return err
+	}
+	if t.conn != nil {
+		if err := t.conn.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Tunnel) Session() (*ssh.Session, error) {
+	if t.session == nil {
+		session, err := t.conn.NewSession()
+		if err != nil {
+			return nil, err
+		}
+		t.session = session
+	}
+	return t.session, nil
+}
+
+func (t *Tunnel) SessionClose() error {
+	if t.session != nil {
+		return t.session.Close()
+	}
+	return nil
+}
+
+func (t *Tunnel) isWsTunnel() bool {
+	return t.WsConn != nil
 }
 
 func (t *Tunnel) executeCommands() error {
@@ -174,8 +238,4 @@ func (t *Tunnel) executeCommand(cmd string) error {
 	wg.Wait()
 
 	return err
-}
-
-func (t *Tunnel) Session() (*ssh.Session, error) {
-	return t.conn.NewSession()
 }

@@ -47,9 +47,9 @@ func logHandler(apiOp *types.APIRequest) error {
 			return apierror.NewAPIError(validation.NotFound, fmt.Sprintf("cluster %s is not exist", cluster))
 		}
 
-		// show all logs if cluster is running
+		// show all logs if cluster is running.
 		if state.Status != common.StatusCreating && state.Status != common.StatusUpgrading {
-			// show all logs from file
+			// show all logs from file.
 			logFile, err := os.Open(logFilePath)
 			if err != nil {
 				return err
@@ -124,7 +124,7 @@ func CloseLog(t *tail.Tail) {
 }
 
 func WriteLastLogs(t *tail.Tail, w http.ResponseWriter, f http.Flusher, logFilePath string) error {
-	// the tail is about to close, we need to read last bytes of file to show final log
+	// the tail is about to close, we need to read last bytes of file to show final log.
 	offset, err := t.Tell()
 	if err != nil {
 		return err
