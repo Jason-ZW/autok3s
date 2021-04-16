@@ -144,14 +144,14 @@ func (p *Alibaba) CreateK3sCluster() (err error) {
 	if p.SSHUser == "" {
 		p.SSHUser = defaultUser
 	}
-	return p.InitCluster(p.Options, p.GenerateManifest, p.generateInstance)
+	return p.InitCluster(p.Options, p.GenerateManifest, p.generateInstance, nil)
 }
 
 func (p *Alibaba) JoinK3sNode() (err error) {
 	if p.SSHUser == "" {
 		p.SSHUser = defaultUser
 	}
-	return p.JoinNodes(p.generateInstance, func() error { return nil })
+	return p.JoinNodes(p.generateInstance, func() error { return nil }, false)
 }
 
 func (p *Alibaba) Rollback() error {
