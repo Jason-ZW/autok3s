@@ -10,14 +10,17 @@ import (
 
 func NewLogger(debug bool, w *os.File) *logrus.Logger {
 	logger := logrus.New()
+
 	if debug {
 		logger.SetLevel(logrus.DebugLevel)
 	}
+
 	logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
+
 	if w != nil {
-		mw := io.MultiWriter(os.Stdout, w)
+		mw := io.MultiWriter(os.Stderr, nil, w)
 		logger.SetOutput(mw)
 	}
 

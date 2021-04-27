@@ -2,6 +2,7 @@ package alibaba
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -200,7 +201,7 @@ func (p *Alibaba) SSHK3sNode(ip string) error {
 		Options:  p.Options,
 		Status:   p.Status,
 	}
-	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning)
+	return p.Connect(ip, &p.SSH, c, p.getInstanceNodes, p.isInstanceRunning, nil)
 }
 
 func (p *Alibaba) IsClusterExist() (bool, []string, error) {
@@ -1504,7 +1505,7 @@ func (p *Alibaba) uploadKeyPair(node types.Node, publicKey string) error {
 	if err != nil {
 		return err
 	}
-	tunnel, err := dialer.OpenTunnel(true, nil)
+	tunnel, err := dialer.OpenTunnel(context.Background(), true, nil, "")
 	if err != nil {
 		return err
 	}

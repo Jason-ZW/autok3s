@@ -96,7 +96,7 @@ func (s *Shell) startTerminal(ctx context.Context, rows, cols int, id string) er
 		return err
 	}
 
-	tunnel, err := dialer.OpenTunnel(false, s.conn)
+	tunnel, err := dialer.OpenTunnel(context.Background(), false, s.conn, "")
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -259,7 +260,7 @@ func (p *ProviderBase) InitCluster(options interface{}, deployPlugins func() []s
 	defer func() {
 		if err != nil {
 			p.Logger.Errorf("%v", err)
-			// save failed status
+			// save failed status.
 			if c == nil {
 				c = &types.Cluster{
 					Metadata: p.Metadata,
@@ -323,7 +324,9 @@ func (p *ProviderBase) InitCluster(options interface{}, deployPlugins func() []s
 		_ = os.Setenv(clientcmd.RecommendedConfigPathEnvVar, fmt.Sprintf("%s/%s", common.CfgPath, common.KubeCfgFile))
 		// change & save current cluster's status to database.
 		c.Status.Status = common.StatusRunning
-		err = common.DefaultDB.SaveCluster(c)
+		if err = common.DefaultDB.SaveCluster(c); err != nil {
+			return err
+		}
 	}
 
 	if deployPlugins != nil {
@@ -438,8 +441,16 @@ func (p *ProviderBase) JoinNodes(cloudInstanceFunc func(ssh *types.SSH) (*types.
 	} else {
 		// some providers do not need to execute the K3s join logic,
 		// so we need to fill in the missing key information.
-		state.Status = common.StatusRunning
-		err = common.DefaultDB.SaveClusterState(state)
+		prevMasterNum, _ := strconv.Atoi(state.Master)
+		prevWorkerNum, _ := strconv.Atoi(state.Worker)
+		addedMasterNum, _ := strconv.Atoi(added.Master)
+		addedWorkerNum, _ := strconv.Atoi(added.Worker)
+		c.Master = strconv.Itoa(prevMasterNum + addedMasterNum)
+		c.Worker = strconv.Itoa(prevWorkerNum + addedWorkerNum)
+		c.Status.Status = common.StatusRunning
+		if err := common.DefaultDB.SaveCluster(c); err != nil {
+			return err
+		}
 	}
 
 	p.Logger.Infof("[%s] successfully executed join logic", p.Provider)
@@ -516,6 +527,7 @@ func (p *ProviderBase) DeleteCluster(force bool, delete func(f bool) (string, er
 	if !force {
 		isConfirmed = utils.AskForConfirmation(fmt.Sprintf("[%s] are you sure to delete cluster %s", p.Provider, p.Name))
 	}
+
 	if isConfirmed {
 		logFile, err := common.GetLogFile(p.ContextName)
 		if err != nil {
@@ -526,16 +538,20 @@ func (p *ProviderBase) DeleteCluster(force bool, delete func(f bool) (string, er
 			// remove log file.
 			_ = os.Remove(filepath.Join(common.GetLogPath(), p.ContextName))
 		}()
+
 		p.Logger = common.NewLogger(common.Debug, logFile)
 		p.Logger.Infof("[%s] executing delete cluster logic...", p.Provider)
+
 		contextName, err := delete(force)
 		if err != nil {
 			return err
 		}
+
 		err = OverwriteCfg(contextName)
 		if err != nil && !force {
 			return fmt.Errorf("[%s] merge kubeconfig error, msg: %v", p.Provider, err)
 		}
+
 		err = common.DefaultDB.DeleteCluster(p.Name, p.Provider)
 		if err != nil && !force {
 			return fmt.Errorf("[%s] failed to delete cluster state, msg: %v", p.Provider, err)
@@ -543,6 +559,7 @@ func (p *ProviderBase) DeleteCluster(force bool, delete func(f bool) (string, er
 
 		p.Logger.Infof("[%s] successfully deleted cluster %s", p.Provider, p.Name)
 	}
+
 	return nil
 }
 
@@ -770,31 +787,43 @@ func (p *ProviderBase) Describe(kubeCfg string, c *types.ClusterInfo, describeIn
 	return c
 }
 
-func (p *ProviderBase) Connect(ip string, ssh *types.SSH, c *types.Cluster, describeInstance func() ([]types.Node, error), isInstanceRunning func(status string) bool) error {
+func (p *ProviderBase) Connect(ip string, ssh *types.SSH, c *types.Cluster, getStatus func() ([]types.Node, error),
+	isRunning func(status string) bool, customConnect func(id string, cluster *types.Cluster) error) error {
 	p.Logger = common.NewLogger(common.Debug, nil)
 	p.Logger.Infof("[%s] executing ssh logic...", p.Provider)
 
-	if describeInstance == nil {
-		return fmt.Errorf("failed to list instance for provider %s", p.Provider)
+	if getStatus == nil {
+		return fmt.Errorf("failed to get status for provider %s", p.Provider)
 	}
-	instanceList, err := describeInstance()
+	status, err := getStatus()
 	if err != nil {
 		return err
 	}
-	ids := make(map[string]string, len(instanceList))
+
+	ids := make(map[string]string, len(status))
+
 	if ip == "" {
 		// generate node name.
-		for _, instance := range instanceList {
-			instanceInfo := instance.PublicIPAddress[0]
-			if instance.Master {
-				instanceInfo = fmt.Sprintf("%s (master)", instanceInfo)
+		for _, s := range status {
+			var info string
+
+			if len(s.PublicIPAddress) > 0 {
+				info = s.PublicIPAddress[0]
 			} else {
-				instanceInfo = fmt.Sprintf("%s (worker)", instanceInfo)
+				info = s.InstanceID
 			}
-			if !isInstanceRunning(instance.InstanceStatus) {
-				instanceInfo = fmt.Sprintf("%s - Unhealthy(instance is %s)", instanceInfo, instance.InstanceStatus)
+
+			if s.Master {
+				info = fmt.Sprintf("%s (master)", info)
+			} else {
+				info = fmt.Sprintf("%s (worker)", info)
 			}
-			ids[instance.InstanceID] = instanceInfo
+
+			if !isRunning(s.InstanceStatus) {
+				info = fmt.Sprintf("%s - Unhealthy(%s)", info, s.InstanceStatus)
+			}
+
+			ids[s.InstanceID] = info
 		}
 	}
 
@@ -806,9 +835,17 @@ func (p *ProviderBase) Connect(ip string, ssh *types.SSH, c *types.Cluster, desc
 		return fmt.Errorf("[%s] choose incorrect ssh node", p.Provider)
 	}
 
-	// ssh K3s node.
-	if err := SSHK3sNode(ip, c, ssh); err != nil {
-		return err
+	if customConnect == nil {
+		// ssh to the typically node.
+		if err := SSHK3sNode(ip, c, ssh); err != nil {
+			return err
+		}
+	} else {
+		// some providers do not typically use IP connections,
+		// so we need to use a custom connect function.
+		if err := customConnect(ip, c); err != nil {
+			return err
+		}
 	}
 
 	p.Logger.Infof("[%s] successfully executed ssh logic", p.Provider)
@@ -852,7 +889,7 @@ func (p *ProviderBase) ReleaseManifests() error {
 			if err != nil {
 				return err
 			}
-			tunnel, err := dialer.OpenTunnel(true, nil)
+			tunnel, err := dialer.OpenTunnel(context.Background(), true, nil, "")
 			if err != nil {
 				return err
 			}

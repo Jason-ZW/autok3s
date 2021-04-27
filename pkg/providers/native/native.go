@@ -58,7 +58,7 @@ func (p *Native) GenerateClusterName() string {
 }
 
 func (p *Native) GenerateManifest() []string {
-	// no need to support
+	// no need to support.
 	return nil
 }
 
@@ -235,7 +235,7 @@ func (p *Native) Rollback() error {
 }
 
 func (p *Native) rollbackInstance(ids []string) error {
-	nodes := []types.Node{}
+	nodes := make([]types.Node, 0)
 	for _, id := range ids {
 		if node, ok := p.M.Load(id); ok {
 			nodes = append(nodes, node.(types.Node))

@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -117,7 +118,7 @@ func getTunnel(wsConn *websocket.Conn, id, node string) (*hosts.Tunnel, error) {
 			if err != nil {
 				return nil, err
 			}
-			return dialer.OpenTunnel(false, wsConn)
+			return dialer.OpenTunnel(context.Background(), false, wsConn, "")
 		}
 	}
 	return nil, apierror.NewAPIError(validation.NotFound, fmt.Sprintf("node %s is not found for cluster [%s]", node, id))
