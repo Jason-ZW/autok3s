@@ -21,6 +21,7 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	dockerunits "github.com/docker/go-units"
+	"github.com/moby/term"
 	cliutil "github.com/rancher/k3d/v4/cmd/util"
 	k3dutil "github.com/rancher/k3d/v4/cmd/util"
 	"github.com/rancher/k3d/v4/pkg/client"
@@ -533,18 +534,15 @@ func (p *K3d) attachNode(id string, cluster *types.Cluster) error {
 	}
 
 	// init docker dialer.
-	dialer, err := hosts.DockerDialer(&hosts.Host{Node: node})
+	dialer, err := hosts.NewDockerDialer(&node)
 	if err != nil {
 		return err
 	}
 
-	// open dialer tunnel.
-	tunnel, err := dialer.OpenTunnel(false, id, context.Background())
-	if err != nil {
-		return err
-	}
+	stdin, _, stderr := term.StdStreams()
+	dialer.SetWriter(p.Logger.Out).SetStdio(nil, stderr, stdin)
 
-	return tunnel.DockerTerminal()
+	return dialer.Terminal()
 }
 
 func (p *K3d) getK3dContainer(node *k3d.Node) (*dockertypes.Container, error) {

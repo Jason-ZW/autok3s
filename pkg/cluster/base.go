@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -831,11 +830,7 @@ func (p *ProviderBase) ReleaseManifests() error {
 	masterIP := p.IP
 	for _, n := range p.Status.MasterNodes {
 		if n.InternalIPAddress[0] == masterIP {
-			dialer, err := hosts.SSHDialer(&hosts.Host{Node: n})
-			if err != nil {
-				return err
-			}
-			tunnel, err := dialer.OpenTunnel(true, "", context.Background())
+			dialer, err := hosts.NewSSHDialer(&n, true)
 			if err != nil {
 				return err
 			}
@@ -843,11 +838,10 @@ func (p *ProviderBase) ReleaseManifests() error {
 				stdout bytes.Buffer
 				stderr bytes.Buffer
 			)
-			tunnel.Writer = p.Logger.Out
-			tunnel.Cmd(fmt.Sprintf("sudo kubectl delete -f %s/ui.yaml", common.K3sManifestsDir))
-			tunnel.Cmd(fmt.Sprintf("sudo rm %s/ui.yaml", common.K3sManifestsDir))
-			_ = tunnel.SetStdio(&stdout, &stderr, nil).Run()
-			_ = tunnel.Close()
+			dialer.Cmd(fmt.Sprintf("sudo kubectl delete -f %s/ui.yaml", common.K3sManifestsDir))
+			dialer.Cmd(fmt.Sprintf("sudo rm %s/ui.yaml", common.K3sManifestsDir))
+			_ = dialer.SetWriter(p.Logger.Out).SetStdio(&stdout, &stderr, nil).Run()
+			_ = dialer.Close()
 			break
 		}
 	}

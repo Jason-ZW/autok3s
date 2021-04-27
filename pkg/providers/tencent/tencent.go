@@ -2,7 +2,6 @@ package tencent
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1406,16 +1405,12 @@ func (p *Tencent) allocateEIPForInstance(num int, master bool) ([]uint64, error)
 }
 
 func (p *Tencent) uploadKeyPair(node types.Node, publicKey string) error {
-	dialer, err := hosts.SSHDialer(&hosts.Host{Node: node})
-	if err != nil {
-		return err
-	}
-	tunnel, err := dialer.OpenTunnel(true, "", context.Background())
+	dialer, err := hosts.NewSSHDialer(&node, true)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = tunnel.Close()
+		_ = dialer.Close()
 	}()
 	var (
 		stdout bytes.Buffer
@@ -1425,9 +1420,7 @@ func (p *Tencent) uploadKeyPair(node types.Node, publicKey string) error {
 
 	p.Logger.Infof("[%s] upload the public key with command: %s", p.GetProviderName(), command)
 
-	tunnel.Cmd(command)
-
-	if err := tunnel.SetStdio(&stdout, &stderr, nil).Run(); err != nil || stderr.String() != "" {
+	if err := dialer.SetStdio(&stdout, &stderr, nil).Cmd(command).Run(); err != nil || stderr.String() != "" {
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	p.Logger.Infof("[%s] upload keypair with output: %s", p.GetProviderName(), stdout.String())
